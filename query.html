@@ -1,0 +1,270 @@
+<html>
+<head>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.15.1/vis.min.js"></script>
+    <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.15.1/vis.min.css" rel="stylesheet" type="text/css" />
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.6.1/css/font-awesome.min.css">
+
+    <style type="text/css">
+        #mynetwork {
+            width: 1200px;
+            height: 800px;
+            border: 1px solid lightgray;
+        }
+    </style>
+    <title>Query</title>
+</head>
+<body>
+    <h3>Solr Search</h3>
+    <div><p>Example Query: USA AND energy</p></div>
+    Query: <input id="query" /> 
+    <button id="search">Search</button>
+    <hr/>
+    <div id="results"></div>
+    <i class="fa fa-spinner fa-pulse fa-2x fa-fw margin-bottom" id="load"></i>
+    <div id="mynetwork">Graph</div>
+    <button id="previouspage">Previous Page</button>
+    <button id="nextpage">Next Page</button>
+</body>
+
+<script>
+    function on_data(data) {
+        $('#results').empty();
+        var docs = data.response.docs;
+        // var total =  + docs.length + ' results';
+        
+        if(docs.length > 0){
+          $('#results').prepend('<div>' + 'Found '+ docs.length + "/" + data.response.numFound + ' results</div>');
+          create_graph(docs);
+          $('#load').hide();
+        }else{
+          alert("No more data.");
+        }
+    }
+
+    function on_search(start, end) {
+        var query = $('#query').val();
+        if (query.length == 0) {
+            return;
+        }
+        /*Change url when using differenct solr*/
+        var url='http://127.0.0.1:8983/solr/test_core/select?q='+query+'&version=2.2&start='+String(start)+'&rows='+String(end)+'&indent=on&wt=json&callback=?&json.wrf=on_data';
+
+        $.getJSON(url);
+    }
+
+    function on_ready() {
+
+      $('#load').hide();
+
+      var start = 0;
+      var end = 25;
+
+      $('#search').click(function(){
+        $('#load').show();
+        start = 0;
+        end = 25;
+        on_search(start, end);
+      });
+
+      $('#previouspage').click(function(){
+        $('#load').show();
+        if(start - 25 < 0)
+          alert("Can't go back")
+        else{
+          start -= 25;
+          end -= 25;
+          on_search(start, end-25);
+        }
+      });
+
+      $('#nextpage').click(function(){
+        $('#load').show();
+        start += 25;
+        end += 25;
+        on_search(start, end);
+      });
+
+      /* Hook enter to search */
+      $('body').keypress(function(e) {
+          if (e.keyCode == '13') {
+              on_search(start, end);
+          }
+      });
+    }
+
+    $(document).ready(on_ready);
+
+
+  /*This is where we create the graph*/ 
+
+  function create_graph(docs) {
+    documents = [];
+    notice = [];
+    prorule = [];
+    presdocu = [];
+    rule = [];
+    
+    documents_name = ["NOTICE", "PRORULE", "RULE", "PRESDOCU"];
+    documents.push(notice, prorule, rule, presdocu);
+
+    $.each(docs, function(i, item) {
+      // $('#results').prepend($('<div>' + item.TYPE + '</div>'));
+        if(item.TYPE == "NOTICE")
+          notice.push(item);
+        else if(item.TYPE == "PRORULE")
+            prorule.push(item);
+        else if(item.TYPE == "RULE")
+            rule.push(item);
+        else if(item.TYPE == "PRESDOCU")
+            presdocu.push(item);
+    });
+
+
+    var nodes = [];
+    var edges = [];
+    var subtype_list = [];
+    var agency_list = [];
+    var subagency_list = [];
+    nodes.push({id: "root", label: 'Federal Register', value: 64, level: 0, shape: "database"});
+
+    for(i = 0; i < documents.length; i++){
+      for(j = 0; j < documents[i].length; j++){
+        if(documents[i][j].SUBTYPE in subtype_list){
+          subtype_list[documents[i][j].SUBTYPE].push(documents[i][j]);
+        } else{
+          var subtype = [];
+          subtype.push(documents[i][j]);
+          subtype_list[documents[i][j].SUBTYPE] = subtype;
+        }
+
+        if(documents[i][j].AGENCY_TYPE in agency_list){
+          agency_list[documents[i][j].AGENCY_TYPE].push(documents[i][j]);
+        } else{
+          var agency = [];
+          agency.push(documents[i][j]);
+          agency_list[documents[i][j].AGENCY_TYPE] = agency;
+        }
+
+        if(documents[i][j].SUBAGY in subagency_list){
+          subagency_list[documents[i][j].SUBAGY].push(documents[i][j]);
+        } else{
+          var subagency = [];
+          subagency.push(documents[i][j]);
+          subagency_list[documents[i][j].SUBAGY] = subagency;
+        }
+      }
+    }
+   
+
+    for(i = 0; i < documents.length; i++){
+      nodes.push({id: documents_name[i], label: documents_name[i], value: 32, level: 1, shape: "square", color:"#A52A2A"});
+      edges.push({from: "root", to: documents_name[i], value: 2});
+      var seen = [];
+      for(j = 0; j < Object.keys(subtype_list).length; j++){
+        for(k = 0; k < subtype_list[Object.keys(subtype_list)[j]].length; k++){
+          if(subtype_list[Object.keys(subtype_list)[j]][k].TYPE == documents_name[i]){
+            if(seen.indexOf(Object.keys(subtype_list)[j]) == -1){
+              nodes.push({id: documents_name[i] + "_" + Object.keys(subtype_list)[j], label: Object.keys(subtype_list)[j], value: 16, level: 1, shape:"triangle", color:"#B8860B"});
+              edges.push({from: documents_name[i], to: documents_name[i] + "_" + Object.keys(subtype_list)[j], value: 2});
+              seen.push(Object.keys(subtype_list)[j]);
+            }
+          }
+        }
+      }
+    }
+
+    for(i = 0; i < documents.length; i++){
+      var seen = [];
+      for(j = 0; j < documents[i].length; j++){
+        for(k = 0; k < nodes.length; k++){
+          var compare = nodes[k]["id"].split("_");
+          // if(compare.length != 2)
+          //   continue;
+          if(documents[i][j].TYPE == compare[0] && documents[i][j].SUBTYPE == compare[1]){
+            // console.log(documents[i][j]);
+            if(documents[i][j].AGENCY_TYPE != null && seen.indexOf(documents[i][j].AGENCY_TYPE[0]) == -1){
+              // console.log(documents[i][j].AGENCY_TYPE[0], seen);
+              // console.log(seen.indexOf(documents[i][j].AGENCY_TYPE[0]));
+              nodes.push({id: nodes[k]["id"] + "_" + documents[i][j].AGENCY_TYPE, label: documents[i][j].AGENCY_TYPE, value: 8, level: 1, shape: "diamond", color:"#FAFAD2"});
+              edges.push({from: nodes[k]["id"], to: nodes[k]["id"] + "_" + documents[i][j].AGENCY_TYPE, value: 2});
+              seen.push(documents[i][j].AGENCY_TYPE[0]);
+            }
+          }
+        }
+      }
+    }
+
+
+  for(i = 0; i < documents.length; i++){
+      var seen = [];
+      for(j = 0; j < documents[i].length; j++){
+        for(k = 0; k < nodes.length; k++){
+          var compare = nodes[k]["id"].split("_");
+          if(documents[i][j].TYPE == compare[0] && documents[i][j].SUBTYPE == compare[1] && documents[i][j].AGENCY_TYPE == compare[2]){
+            if(documents[i][j].SUBAGY != null && seen.indexOf(documents[i][j].SUBAGY[0]) == -1){
+              nodes.push({id: nodes[k]["id"] + "_" + documents[i][j].SUBAGY, label: documents[i][j].SUBAGY, value: 2, level: 1, shape: "triangleDown"});
+              edges.push({from: nodes[k]["id"], to: nodes[k]["id"] + "_" + documents[i][j].SUBAGY, value: 2});
+              seen.push(documents[i][j].SUBAGY[0]);
+            }
+          }
+        }
+      }
+    }
+
+    subject_link = []
+    for(i = 0; i < documents.length; i++){
+      var seen = [];
+      for(j = 0; j < documents[i].length; j++){
+        for(k = 0; k < nodes.length; k++){
+          var compare = nodes[k]["id"].split("_");
+          if(compare[0] == "PRESDOCU" && documents[i][j].SUBTYPE == compare[1]){
+            nodes.push({id: documents[i][j].id, label: "Docs", value: 1, level: 1, shape: "dot", title: documents[i][j].HD[0]});
+            edges.push({from: nodes[k]["id"], to: documents[i][j].id, value: 2});
+          }  
+
+          if(documents[i][j].TYPE == compare[0] && documents[i][j].SUBTYPE == compare[1] && documents[i][j].AGENCY_TYPE == compare[2] && documents[i][j].SUBAGY == compare[3]){
+            // console.log(documents[i][j]);
+            if(documents[i][j].SUBJECT != null && seen.indexOf(documents[i][j].SUBJECT[0]) == -1){
+              nodes.push({id: nodes[k]["id"] + "_" + documents[i][j].SUBJECT, label: "Docs", value: 1, level: 1, shape: "dot", title: documents[i][j].SUBJECT});
+              // console.log("https://www.federalregister.gov/a/"+documents[i][j].DOC_ID);
+              edges.push({from: nodes[k]["id"], to: nodes[k]["id"] + "_" + documents[i][j].SUBJECT, value: 2});
+              subject_link[nodes[k]["id"] + "_" + documents[i][j].SUBJECT] = "https://www.federalregister.gov/a/"+documents[i][j].DOC_ID
+              seen.push(documents[i][j].SUBJECT[0]);
+            }
+          }
+        }
+      }
+    }
+
+    // console.log(subject_link);
+
+    // create a network
+    var container = document.getElementById('mynetwork');
+    var data = {
+      nodes: nodes,
+      edges: edges
+    };
+    var options = {
+        // layout:{
+        //   hierarchical: {
+        //     direction: "UD"
+        //   }
+        // },
+        nodes: {
+        shadow: {
+          enabled: true,
+        },
+      },
+    };
+    var network = new vis.Network(container, data, options);
+    network.on( 'click', function(properties) {
+      if(properties.nodes in subject_link)
+        window.open(subject_link[properties.nodes]);
+    });
+  }
+
+
+</script>
+
+
